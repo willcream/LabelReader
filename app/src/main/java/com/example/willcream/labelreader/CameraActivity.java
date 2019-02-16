@@ -4,7 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -31,6 +34,7 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.Toast;
 
 import com.baidu.ocr.sdk.OCR;
@@ -41,6 +45,7 @@ import com.baidu.ocr.sdk.model.GeneralBasicParams;
 import com.baidu.ocr.sdk.model.GeneralResult;
 import com.baidu.ocr.sdk.model.WordSimple;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -58,6 +63,7 @@ public class CameraActivity extends Activity {
 
     private static final SparseIntArray ORIENTATION = new SparseIntArray();
 
+    ///为了使照片竖直显示
     static {
         ORIENTATION.append(Surface.ROTATION_0, 90);
         ORIENTATION.append(Surface.ROTATION_90, 0);
@@ -92,8 +98,14 @@ public class CameraActivity extends Activity {
 
         setContentView(R.layout.activity_camera);
         mTextureView = (TextureView) findViewById(R.id.textureView);
-        if(mTextureView == null){
-        }
+
+        Button btnCapture = findViewById(R.id.btn_capture);
+        btnCapture.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                takePicture(v);
+            }
+        });
     }
 
     @Override
@@ -162,6 +174,8 @@ public class CameraActivity extends Activity {
                         return Long.signum(lhs.getWidth() * lhs.getHeight() - rhs.getHeight() * rhs.getWidth());
                     }
                 });
+
+
                 //此ImageReader用于拍照所需
                 setupImageReader();
                 mCameraId = cameraId;
@@ -243,6 +257,14 @@ public class CameraActivity extends Activity {
         try {
             mCaptureRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             mCaptureRequestBuilder.addTarget(previewSurface);
+            // 获取手机方向
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            Log.d("w-c","rotation="+rotation+"   orientation_rotation="+ORIENTATION.get(rotation));
+            // 根据设备方向计算设置照片的方向
+//            mCaptureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATION.get(rotation));
+            mCaptureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, 180);
+
+
             mCameraDevice.createCaptureSession(Arrays.asList(previewSurface, mImageReader.getSurface()), new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(CameraCaptureSession session) {
@@ -313,7 +335,6 @@ public class CameraActivity extends Activity {
     private void unLockFocus() {
         try {
             mCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
-            //mCameraCaptureSession.capture(mCaptureRequestBuilder.build(), null, mCameraHandler);
             mCameraCaptureSession.setRepeatingRequest(mCaptureRequest, null, mCameraHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
@@ -346,16 +367,16 @@ public class CameraActivity extends Activity {
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
             @Override
             public void onImageAvailable(ImageReader reader) {
-                mCameraHandler.post(new imageSaver(reader.acquireNextImage()));
+                mCameraHandler.post(new ImageSaver(reader.acquireNextImage()));
             }
         }, mCameraHandler);
     }
 
-    public static class imageSaver implements Runnable {
+    public static class ImageSaver implements Runnable {
 
         private Image mImage;
 
-        public imageSaver(Image image) {
+        public ImageSaver(Image image) {
             mImage = image;
         }
 
@@ -365,17 +386,32 @@ public class CameraActivity extends Activity {
             byte[] data = new byte[buffer.remaining()];
             buffer.get(data);
             String path = Environment.getExternalStorageDirectory() + "/DCIM/CameraV2/";
-            Log.d("w-c","photo path: "+path);
             File mImageFile = new File(path);
             if (!mImageFile.exists()) {
                 mImageFile.mkdir();
             }
+
+            // Media.Image 转变为Bitmap来进行旋转
+            Bitmap bitmapImage = BitmapFactory.decodeByteArray(data, 0, data.length, null);
+            Matrix mtx = new Matrix();
+            // 不知为何总是与手机方向差90度
+            mtx.postRotate(90);
+            int w = mImage.getWidth();
+            int h = mImage.getHeight();
+            Bitmap rotatedBitMap = Bitmap.createBitmap(bitmapImage,0,0,w,h,mtx,true);
+
+            // Bitmap转为字节数组
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            rotatedBitMap.compress(Bitmap.CompressFormat.JPEG,100, bos);
+            byte[] bitmapdata = bos.toByteArray();
+
+            // 保存到文件
             String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
             String fileName = path + "IMG_" + timeStamp + ".jpg";
             FileOutputStream fos = null;
             try {
                 fos = new FileOutputStream(fileName);
-                fos.write(data, 0, data.length);
+                fos.write(bitmapdata, 0, bitmapdata.length);
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
