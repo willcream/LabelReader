@@ -5,7 +5,9 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
+import android.util.Log;
 import android.widget.TextView;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
@@ -15,6 +17,16 @@ import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
 
+import com.baidu.ocr.sdk.OCR;
+import com.baidu.ocr.sdk.OnResultListener;
+import com.baidu.ocr.sdk.exception.OCRError;
+import com.baidu.ocr.sdk.model.AccessToken;
+import com.baidu.ocr.sdk.model.GeneralBasicParams;
+import com.baidu.ocr.sdk.model.GeneralResult;
+import com.baidu.ocr.sdk.model.WordSimple;
+
+import java.io.File;
+
 public class MainActivity extends AppCompatActivity {
 
     // Used to load the 'native-lib' library on application startup.
@@ -23,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Context context;
+    private TextView mTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +45,11 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        // Example of a call to a native method
+        TextView tv = (TextView) findViewById(R.id.sample_text);
+        tv.setText(stringFromJNI());
+        mTextView = tv;
 
         FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
         fab.setOnClickListener(new View.OnClickListener() {
@@ -45,9 +63,16 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Example of a call to a native method
-        TextView tv = (TextView) findViewById(R.id.sample_text);
-        tv.setText(stringFromJNI());
+
+        // 试用百度文字识别
+        initOCR();
+        readOnce("dp4.jpg");
+        readOnce("dp5.jpg");
+        readOnce("dp6.jpg");
+        readOnce("dp7.jpg");
+        readOnce("dp8.jpg");
+
+
     }
 
     @Override
@@ -71,6 +96,71 @@ public class MainActivity extends AppCompatActivity {
 
         return super.onOptionsItemSelected(item);
     }
+
+
+    private void initOCR() {
+        OCR.getInstance(context).initAccessToken(new OnResultListener<AccessToken>() {
+            @Override
+            public void onResult(AccessToken result) {
+                // 调用成功，返回AccessToken对象
+                String token = result.getAccessToken();
+                Log.d("w-c", "token: " + token);
+            }
+
+            @Override
+            public void onError(OCRError error) {
+                // 调用失败，返回OCRError子类SDKError对象
+                Log.e("w-c", "init ocr error " + error.getMessage());
+            }
+        }, getApplicationContext());
+    }
+
+    /**
+     * 调用百度的API进行一次文字识别，注意需要已经调用了initOCR
+     */
+    private void readOnce(String fileName) {
+        // 通用文字识别参数设置
+        GeneralBasicParams param = new GeneralBasicParams();
+        param.setDetectDirection(true);
+        // 添加图片文件
+        String path = Environment.getExternalStorageDirectory() + "/DCIM/CameraV2/";
+        param.setImageFile(new File(path + fileName));
+
+        // 调用通用文字识别服务
+        OCR.getInstance(context).recognizeAccurateBasic(param, new OnResultListener<GeneralResult>() {
+            @Override
+            public void onResult(GeneralResult result) {
+                StringBuilder sb = new StringBuilder();
+                // 调用成功，返回GeneralResult对象
+                for (WordSimple wordSimple : result.getWordList()) {
+                    // wordSimple不包含位置信息
+                    WordSimple word = wordSimple;
+                    sb.append(word.getWords());
+                    sb.append("\n");
+                }
+
+                String oldText = mTextView.getText().toString();
+                mTextView.setText(oldText + "\n\n" + sb.toString());
+                // json格式返回字符串
+//                listener.onResult(result.getJsonRes());
+            }
+
+            @Override
+            public void onError(OCRError error) {
+                // 调用失败，返回OCRError对象
+                Log.e("w-c", "ocr read error" + error.getMessage());
+            }
+        });
+    }
+
+    private String parseSimpleWord(String segement){
+        String[] arr = segement.split("\n");
+        final String[] TITLES = {"款号","货号","品牌"};
+        for (String one:arr) {
+
+        }
+    }
+
 
     /**
      * A native method that is implemented by the 'native-lib' native library,
